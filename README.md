@@ -1,6 +1,6 @@
 <div align="center">
 
-# samsung-remote
+# Samsung TV Remote Control Web App
 
 **A remote control for your Samsung TV, in a browser tab on your own machine.**
 
