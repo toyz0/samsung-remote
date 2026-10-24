@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Samsung Remote</title>
+<style>
+  :root {
+    --bg: #15171c;
+    --panel: #1e2128;
+    --key: #2a2e37;
+    --key-hi: #3a404c;
+    --text: #e8eaed;
+    --muted: #a7aeb9;
+    --accent: #1f55c9;
+    --danger: #c7442f;
+    --ok: #3fa34d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center;
+  }
+  main { width: 100%; max-width: 330px; }
+  header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  select {
+    flex: 1; min-width: 0; padding: 8px 10px;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--key); border-radius: 8px; font: inherit;
+  }
+  #dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--muted); flex: none;
+  }
+  #dot.on { background: var(--ok); }
+  #dot.err { background: var(--danger); }
+  #rescan { flex: none; width: 42px; padding: 9px 0; font-size: 17px; line-height: 1; }
+  #status { color: var(--muted); font-size: 13px; min-height: 18px; margin: 0 0 14px; }
+  /* 8px binds keys into a cluster, 18px separates one cluster from the next,
+     so the groups stay tellable apart by thumb without looking. */
+  .grid { display: grid; gap: 8px; margin-bottom: 18px; }
+  .c3 { grid-template-columns: repeat(3, 1fr); }
+  .c4 { grid-template-columns: repeat(4, 1fr); }
+  button {
+    padding: 14px 4px;
+    background: var(--key); color: var(--text);
+    border: 0; border-radius: 10px;
+    font: inherit; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  button:hover:enabled { background: var(--key-hi); }
+  button:active:enabled { background: var(--accent); }
+  button:disabled { opacity: .4; cursor: default; }
+  .pow { background: var(--danger); }
+  .enter { background: var(--accent); }
+  /* D-pad: centre column holds up/enter/down, flanked by left and right. */
+  .dpad {
+    display: grid; gap: 8px;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-areas: ".  up  ." "lt ok rt" ".  dn  .";
+    margin-bottom: 18px;
+  }
+  .dpad .up { grid-area: up; } .dpad .dn { grid-area: dn; }
+  .dpad .lt { grid-area: lt; } .dpad .rt { grid-area: rt; }
+  .dpad .ok { grid-area: ok; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span id="dot" title="connection"></span>
+    <select id="tv"><option value="">Searching…</option></select>
+    <button id="rescan" title="Scan again for TVs">⟳</button>
+  </header>
+  <p id="status">Searching…</p>
+
+  <div class="grid c3">
+    <button class="pow" data-key="KEY_POWER">⏻</button>
+    <button data-key="KEY_SOURCE">Source</button>
+    <button data-key="KEY_MUTE">Mute</button>
+  </div>
+
+  <div class="dpad">
+    <button class="up" data-key="KEY_UP">▲</button>
+    <button class="lt" data-key="KEY_LEFT">◀</button>
+    <button class="ok enter" data-key="KEY_ENTER">OK</button>
+    <button class="rt" data-key="KEY_RIGHT">▶</button>
+    <button class="dn" data-key="KEY_DOWN">▼</button>
+  </div>
+
+  <div class="grid c3">
+    <button data-key="KEY_RETURN">Back</button>
+    <button data-key="KEY_HOME">Home</button>
+    <button data-key="KEY_MENU">Menu</button>
+  </div>
+
+  <div class="grid c4">
+    <button data-key="KEY_VOLUP">Vol +</button>
+    <button data-key="KEY_VOLDOWN">Vol −</button>
+    <button data-key="KEY_CHUP">Ch +</button>
+    <button data-key="KEY_CHDOWN">Ch −</button>
+  </div>
+
+  <div class="grid c4">
+    <button data-key="KEY_1">1</button><button data-key="KEY_2">2</button>
+    <button data-key="KEY_3">3</button><button data-key="KEY_4">4</button>
+    <button data-key="KEY_5">5</button><button data-key="KEY_6">6</button>
+    <button data-key="KEY_7">7</button><button data-key="KEY_8">8</button>
+    <button data-key="KEY_9">9</button><button data-key="KEY_0">0</button>
+    <button data-key="KEY_PLAY">▶︎</button>
+    <button data-key="KEY_PAUSE">⏸</button>
+  </div>
+</main>
+
+<script>
+// The socket to the TV lives in server.js, not here: the TV only takes commands
+// over wss://IP:8002 behind a self-signed certificate, which a browser will not
+// accept for a WebSocket. So each key press is one POST to this page's origin.
+// A TV is addressed by its duid, never by IP: server.js looks the current
+// address up and re-scans by itself when DHCP has moved it.
+const tvSel    = document.getElementById('tv');
+const rescanBtn = document.getElementById('rescan');
+const statusEl = document.getElementById('status');
+const dot      = document.getElementById('dot');
+const keys     = [...document.querySelectorAll('button[data-key]')];
+
+function setState(cls, msg) {
+  dot.className = cls;
+  statusEl.textContent = msg;
+}
+
+function fillTvs(tvs) {
+  const previous = tvSel.value;
+  tvSel.innerHTML = '';
+
+  for (const tv of tvs) {
+    const opt = document.createElement('option');
+    opt.value = tv.duid;
+    opt.textContent = tv.modelName ? `${tv.name} — ${tv.modelName}` : tv.name;
+    tvSel.append(opt);
+  }
+
+  if (!tvs.length) {
+    tvSel.innerHTML = '<option value="">No TV found</option>';
+    setState('err', 'No TV found on this LAN — switch one on, then press ⟳');
+    return;
+  }
+
+  if (tvs.some(tv => tv.duid === previous)) tvSel.value = previous;
+  setState('', 'Press any key to connect (the TV asks to allow it the first time)');
+}
+
+async function loadTvs(force) {
+  rescanBtn.disabled = true;
+  if (force) setState('', 'Scanning for TVs…');
+
+  try {
+    // The cached list answers instantly; a scan is only about a second.
+    let res = await fetch(force ? '/scan' : '/tvs', { method: force ? 'POST' : 'GET' });
+    let body = await res.json();
+
+    if (!force && !body.tvs.length) {
+      setState('', 'Scanning for TVs…');
+      res = await fetch('/scan', { method: 'POST' });
+      body = await res.json();
+    }
+    fillTvs(body.tvs ?? []);
+  } catch {
+    setState('err', 'Cannot reach server.js — is it still running?');
+  } finally {
+    rescanBtn.disabled = false;
+  }
+}
+
+let pending = 0;
+
+async function send(key) {
+  const duid = tvSel.value;
+  if (!duid) return;
+
+  pending++;
+  if (pending === 1) setState('', 'Sending…');
+
+  try {
+    const res = await fetch(`/key?duid=${encodeURIComponent(duid)}&key=${encodeURIComponent(key)}`,
+                            { method: 'POST' });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok) setState('on', `Sent ${key}`);
+    else setState('err', body.error || `Send failed (HTTP ${res.status})`);
+  } catch {
+    setState('err', 'Cannot reach server.js — is it still running?');
+  } finally {
+    pending--;
+  }
+}
+
+keys.forEach(b => b.addEventListener('click', () => send(b.dataset.key)));
+rescanBtn.addEventListener('click', () => loadTvs(true));
+tvSel.addEventListener('change', () => setState('', 'Press any key to connect'));
+
+loadTvs(false);
+</script>
+</body>
+</html>

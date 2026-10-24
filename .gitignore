@@ -1,0 +1,14 @@
+node_modules/
+
+# Pairing tokens for your TVs — treat as secrets.
+tokens.json
+
+# Discovery cache: device UUIDs, LAN addresses and TV model numbers.
+tvs.json
+
+# Editor/agent tooling state; contains absolute paths from this machine.
+.impeccable/
+
+# Code review reports. Kept locally: they describe past vulnerabilities in
+# enough detail to attack an unpatched copy of this code.
+docs/
